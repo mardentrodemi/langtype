@@ -1,0 +1,41 @@
+Learner word pairs: sources and data rights
+
+The word-mode vocabulary contains 3,767 edited English/Russian pairs.
+
+1) Word selection and CEFR metadata: Oxford 3000 / Oxford 5000
+   Oxford University Press.
+   https://www.oxfordlearnersdictionaries.com/about/wordlists/oxford3000-5000
+   Oxford word lists and level assignments are copyright Oxford University Press.
+
+   Machine-readable English/Russian starting data:
+   vanoren/oxford-word-lists, oxford_5000_including_3000.csv
+   https://github.com/vanoren/oxford-word-lists
+   Revision: 2884a3a887e38ac91f428472492eb4bd51e9dbfb
+   https://github.com/vanoren/oxford-word-lists/blob/2884a3a887e38ac91f428472492eb4bd51e9dbfb/oxford_5000_including_3000.csv
+   CSV SHA-256: 391e2fbbcf7eb2c65dcdb82f77d0821157957f3d319b9f00c289706a2cdeb755
+   The CSV repository does not supply an explicit data license.
+
+2) Everyday additions and editorial changes by langtype contributors
+   - Kept A1-B2 headwords, removing C1-only entries.
+   - Selected one representative meaning per English entry and reviewed the
+     Russian glosses, correcting errors and replacing secondary senses.
+   - Excluded a/the, shall, shaped and seeker as unsuitable standalone pairs.
+   - Used common phrases for a few context-dependent entries: a lot,
+     ought to, get rid of and in spite of; used lyrics for song lyrics.
+   - Restored English capitals for I, days, months, and abbreviations.
+   - Added 95 everyday words, proper names and short phrases. These additions
+     have no assigned CEFR level; May is distinct from the modal verb may.
+   - Retained short UTF-8 entries (1-24 characters) without truncation.
+
+The Russian glosses are an edited version of the starting data, not an
+Oxford University Press or Cambridge University Press Russian translation.
+
+data/words.tsv is the editable source. scripts/build_words.py exports the
+aligned words_en.txt and words_ru.txt files without changing sentence files.
+
+The former CC BY-SA 4.0 notice described the replaced SMARTool/OpenRussian
+word list. It does not license this replacement. This file records source
+attribution and does not assert an open license for third-party data.
+The project's MIT code license does not grant additional rights to that data.
+
+Sentence attribution and licensing remain in TATOEBA-LICENSE.txt.
