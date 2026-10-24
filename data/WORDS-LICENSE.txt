@@ -36,6 +36,6 @@ aligned words_en.txt and words_ru.txt files without changing sentence files.
 The former CC BY-SA 4.0 notice described the replaced SMARTool/OpenRussian
 word list. It does not license this replacement. This file records source
 attribution and does not assert an open license for third-party data.
-The project's MIT code license does not grant additional rights to that data.
+The project's PolyForm Noncommercial code license does not grant additional rights to that data.
 
 Sentence attribution and licensing remain in TATOEBA-LICENSE.txt.

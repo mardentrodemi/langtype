@@ -66,3 +66,11 @@ python3 scripts/build_words.py --check  # validate entries and check exports
 ```
 
 `data/words_en.txt` and `data/words_ru.txt` contain one aligned pair per line. Every entry is 1–24 characters, as required by the word-mode loader. The exporter checks spelling characters, duplicate English entries, source labels, and alignment. See [data/WORDS-LICENSE.txt](data/WORDS-LICENSE.txt) for attribution and data rights. Sentence data is maintained separately.
+
+## License
+
+The program code is under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use, change, and share it for personal use, study, hobby projects, and noncommercial organizations such as schools and charities. Selling the program or a modified version is outside the allowed purposes. The license text itself is the terms; this paragraph is only a short description.
+
+Required Notice: Copyright 2026 MARADENTRO (https://github.com/mardentrodemi/langtype)
+
+Sentence pairs and word lists keep their own terms: [data/TATOEBA-LICENSE.txt](data/TATOEBA-LICENSE.txt) and [data/WORDS-LICENSE.txt](data/WORDS-LICENSE.txt).

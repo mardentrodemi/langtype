@@ -3,7 +3,7 @@ name = "langtype"
 version = "1.0.0"
 edition = "2021"
 description = "Bilingual EN/RU typing trainer"
-license = "MIT"
+license = "PolyForm-Noncommercial-1.0.0"
 
 [dependencies]
 ratatui = "0.29"
