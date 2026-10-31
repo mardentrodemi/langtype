@@ -18,7 +18,7 @@ use crate::mistakes::MistakeBank;
 use crate::model::{Lang, SpeedUnit};
 use crate::paths::{self, user_dir};
 use crate::stats::{Counters, DualStats};
-use crate::text::{chars_match, prepare_line, SKIP_PUNCT};
+use crate::text::{chars_match, is_wrap_space, prepare_line, SKIP_PUNCT};
 
 const READ_ERROR: &str = "Could not read this book";
 
@@ -75,6 +75,10 @@ pub struct BookSession {
     started_finished: bool,
     typed_any: bool,
     pub layout_ok: bool,
+    /// Width of the book text area. A space at the end of a wrapped line is skipped.
+    wrap_width: usize,
+    /// The next space key finishes a wrapped line and should not be typed.
+    forgive_space: bool,
 }
 
 impl BookProgress {
@@ -155,6 +159,8 @@ impl BookSession {
             started_finished,
             typed_any: false,
             layout_ok: false,
+            wrap_width: 10_000,
+            forgive_space: false,
         };
         session.lang = guess_lang(&session.lines);
         session.sync();
@@ -228,16 +234,92 @@ impl BookSession {
         (line, total)
     }
 
+    /// Width of the text inside the book panel. Spaces that end a wrapped line are skipped.
+    pub fn set_wrap_width(&mut self, width: usize) {
+        self.wrap_width = width.max(1);
+    }
+
     pub fn backspace(&mut self) {
-        if let Some(side) = self.current.as_mut() {
-            side.backspace();
+        self.forgive_space = false;
+        let Some(side) = self.current.as_mut() else {
+            return;
+        };
+        if side.ends_with_ignored() {
+            while side.ends_with_ignored() {
+                side.backspace();
+            }
         }
+        side.backspace();
     }
 
     pub fn on_char(&mut self, ch: char, bank: &mut MistakeBank) -> Option<Commit> {
         if self.hide_punctuation && SKIP_PUNCT.contains(ch) {
             return None;
         }
+        self.sync();
+        let opened = self.drain_wrap_spaces();
+        if self.forgive_leftover_space(ch) {
+            if let Some(side) = self.current.as_mut() {
+                side.note_key();
+            }
+            return opened;
+        }
+        self.forgive_space = false;
+        let typed = self.accept_char(ch, bank);
+        let closed = self.drain_wrap_spaces();
+        merge_commit(opened, merge_commit(typed, closed))
+    }
+
+    fn forgive_leftover_space(&mut self, ch: char) -> bool {
+        if !self.forgive_space || ch != ' ' {
+            return false;
+        }
+        let expected_space = self.current.as_ref().is_some_and(|side| {
+            side.target().chars().nth(side.typed().chars().count()) == Some(' ')
+        });
+        if expected_space {
+            return false;
+        }
+        self.forgive_space = false;
+        true
+    }
+
+    /// Skips spaces that only exist because the line wrapped, then commits a finished line.
+    fn drain_wrap_spaces(&mut self) -> Option<Commit> {
+        let mut ignored_any = false;
+        loop {
+            if !self.cursor_on_wrap_space() {
+                if ignored_any {
+                    self.forgive_space = true;
+                }
+                return None;
+            }
+            let Some(side) = self.current.as_mut() else {
+                return None;
+            };
+            if !side.ignore_expected() {
+                return None;
+            }
+            ignored_any = true;
+            if !side.done() {
+                continue;
+            }
+            self.forgive_space = true;
+            let commit = self.commit_current();
+            self.index += 1;
+            self.sync();
+            return commit;
+        }
+    }
+
+    fn cursor_on_wrap_space(&self) -> bool {
+        let Some(side) = self.current.as_ref() else {
+            return false;
+        };
+        is_wrap_space(side.target(), side.typed().chars().count(), self.wrap_width)
+    }
+
+    fn accept_char(&mut self, ch: char, bank: &mut MistakeBank) -> Option<Commit> {
         self.sync();
         let lang = self.lang;
         let Some(side) = self.current.as_mut() else {
@@ -256,8 +338,7 @@ impl BookSession {
             let target = side.target().to_string();
             bank.note_typo(lang, &target, pos, ch, side.word_flag());
         }
-        let finished_line = self.current.as_ref().is_some_and(Side::done);
-        if !finished_line {
+        if !self.current.as_ref().is_some_and(Side::done) {
             return None;
         }
         let commit = self.commit_current();
@@ -672,6 +753,19 @@ fn local_name(raw: &[u8]) -> &[u8] {
     }
 }
 
+fn merge_commit(first: Option<Commit>, second: Option<Commit>) -> Option<Commit> {
+    match (first, second) {
+        (None, other) | (other, None) => other,
+        (Some(mut first), Some(second)) => {
+            first.counters.keystrokes += second.counters.keystrokes;
+            first.counters.correct += second.counters.correct;
+            first.counters.seconds += second.counters.seconds;
+            first.counters.sides += second.counters.sides;
+            Some(first)
+        }
+    }
+}
+
 fn normalize(text: &str) -> String {
     text.split_whitespace()
         .map(|word| word.replace('\u{00ad}', ""))
@@ -927,6 +1021,58 @@ mod tests {
         assert!(words.contains("\"привет\": 1"));
         assert!(syllables.contains("\"прив\": 1"));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn space_at_the_end_of_a_wrapped_line_is_not_counted() {
+        let mut session =
+            BookSession::start(&entry("a.fb2"), vec!["one two three".into()], None, opts())
+                .unwrap();
+        session.set_wrap_width(8);
+        let mut bank = MistakeBank::default();
+        for ch in ['o', 'n', 'e', ' ', 't', 'w', 'o'] {
+            assert!(session.on_char(ch, &mut bank).is_none());
+        }
+        let pending = session.live().for_lang(Lang::En).clone();
+        assert_eq!(pending.keystrokes, 7);
+        assert_eq!(pending.correct, 7);
+        assert_eq!(session.current().unwrap().typed(), "one two ");
+
+        assert!(session.on_char(' ', &mut bank).is_none());
+        assert_eq!(session.live().for_lang(Lang::En).keystrokes, 7);
+        assert!(bank.ranked(Lang::En, MistakeKind::Letters).is_empty());
+
+        let mut done = None;
+        for ch in ['t', 'h', 'r', 'e', 'e'] {
+            done = session.on_char(ch, &mut bank);
+        }
+        let done = done.expect("finished line");
+        assert_eq!(done.counters.keystrokes, 12);
+        assert_eq!(done.counters.correct, 12);
+
+        let mut again =
+            BookSession::start(&entry("a.fb2"), vec!["one two three".into()], None, opts())
+                .unwrap();
+        again.set_wrap_width(8);
+        for ch in ['o', 'n', 'e', ' ', 't', 'w', 'o'] {
+            again.on_char(ch, &mut bank);
+        }
+        again.backspace();
+        assert_eq!(again.current().unwrap().typed(), "one tw");
+    }
+
+    #[test]
+    fn space_inside_a_line_still_counts() {
+        let mut session =
+            BookSession::start(&entry("a.fb2"), vec!["one two".into()], None, opts()).unwrap();
+        session.set_wrap_width(80);
+        let mut bank = MistakeBank::default();
+        for ch in ['o', 'n', 'e', ' '] {
+            assert!(session.on_char(ch, &mut bank).is_none());
+        }
+        let pending = session.live().for_lang(Lang::En).clone();
+        assert_eq!(pending.keystrokes, 4);
+        assert_eq!(pending.correct, 4);
     }
 
     #[test]

@@ -23,7 +23,7 @@ Rust, [ratatui](https://ratatui.rs/), and a color terminal. The screen is a dark
 
 Mistakes (wrong letters, 4-letter syllables, and whole words) are stored per language with a frequency count, at the moment you type the wrong character in typing practice — even if you then fix it. A **syllable** is the mistyped letter plus the three letters before it, skipping spaces (so a typo on **а** in «привет админ» saves **вета**). **Practice mistakes** does not add new mistakes and does not change speed stats; only all-time duration grows. Pick language, then **Letters** / **Words** / **Syllables**, then **One after another** (mixed on one line, filled to the terminal; items with more errors appear more often, but the same token is unlikely twice in a row) or **In a line** (one item per line, repeated; how many consecutive lines is set in Settings; the next item is also weighted by error count). Esc returns to the menu.
 
-Each side’s timer starts on the first character.
+Each side’s timer starts on the first character. If you stop, the speed clock keeps going for 2 seconds, then holds until the next key. That pause is not counted.
 
 ## Speed units
 

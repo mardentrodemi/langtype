@@ -386,6 +386,7 @@ impl App {
             let Some(session) = self.book.as_mut() else {
                 return;
             };
+            session.set_wrap_width(book_text_width(self.cols));
             session.on_char(ch, &mut self.bank)
         };
         let Some(commit) = commit else {
@@ -574,6 +575,11 @@ impl App {
             Screen::Flash { text, .. } => ui::draw_flash(frame, text),
         }
     }
+}
+
+/// Book text is inside a one-cell border, matching `draw_book`.
+fn book_text_width(cols: u16) -> usize {
+    (cols as usize).saturating_sub(2).max(1)
 }
 
 struct RawGuard;

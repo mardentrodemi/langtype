@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use rand::seq::SliceRandom;
 
@@ -8,13 +8,18 @@ use crate::model::{Lang, SpeedUnit};
 use crate::stats::{Counters, DualStats};
 use crate::text::{chars_match, count_correct, prepare_line, SKIP_PUNCT};
 
+/// The speed clock keeps running this long after the last key, then holds.
+const SPEED_IDLE: Duration = Duration::from_secs(2);
+
 /// One line the user is typing.
 #[derive(Clone, Debug)]
 pub struct Side {
     target: String,
     typed: String,
     keys: u64,
-    started: Option<Instant>,
+    pace: Pace,
+    /// Parallel to `typed` chars. These were filled in, not typed, and do not score.
+    ignored: Vec<bool>,
     word_mistake_at: Option<usize>,
     committed: bool,
 }
@@ -25,7 +30,8 @@ impl Side {
             target,
             typed: String::new(),
             keys: 0,
-            started: None,
+            pace: Pace::default(),
+            ignored: Vec::new(),
             word_mistake_at: None,
             committed: false,
         }
@@ -44,12 +50,19 @@ impl Side {
     }
 
     pub fn backspace(&mut self) {
-        if self.typed.pop().is_some()
+        let removed = self.typed.pop().is_some();
+        if removed {
+            self.ignored.pop();
+        }
+        if removed
             && self
                 .word_mistake_at
                 .is_some_and(|at| self.typed_len() <= at)
         {
             self.word_mistake_at = None;
+        }
+        if removed && self.pace.started() {
+            self.pace.on_input(Instant::now());
         }
     }
 
@@ -58,12 +71,35 @@ impl Side {
         if self.typed_len() >= self.target_len() {
             return None;
         }
-        if self.started.is_none() {
-            self.started = Some(Instant::now());
-        }
+        self.pace.on_input(Instant::now());
         self.typed.push(ch);
+        self.ignored.push(false);
         self.keys += 1;
         Some(self.typed_len() - 1)
+    }
+
+    /// Fills the next target character without a keystroke and without scoring it.
+    pub(crate) fn ignore_expected(&mut self) -> bool {
+        if self.typed_len() >= self.target_len() {
+            return false;
+        }
+        let Some(ch) = self.target.chars().nth(self.typed_len()) else {
+            return false;
+        };
+        self.typed.push(ch);
+        self.ignored.push(true);
+        true
+    }
+
+    pub(crate) fn ends_with_ignored(&self) -> bool {
+        self.ignored.last().copied().unwrap_or(false)
+    }
+
+    /// Keeps the speed clock alive when a key is swallowed and nothing is typed.
+    pub(crate) fn note_key(&mut self) {
+        if self.pace.started() {
+            self.pace.on_input(Instant::now());
+        }
     }
 
     fn typed_len(&self) -> usize {
@@ -77,11 +113,8 @@ impl Side {
     fn snapshot(&self) -> Counters {
         Counters {
             keystrokes: self.keys,
-            correct: count_correct(&self.target, &self.typed),
-            seconds: self
-                .started
-                .map(|t| t.elapsed().as_secs_f64())
-                .unwrap_or(0.0),
+            correct: count_correct(&self.target, &self.typed, &self.ignored),
+            seconds: self.pace.seconds(Instant::now()),
             sides: 0,
         }
     }
@@ -501,6 +534,51 @@ enum VersusStep {
     Second,
 }
 
+/// Typing time for one line. Idle longer than [`SPEED_IDLE`] is left out,
+/// so the live speed holds instead of falling while the user is stopped.
+#[derive(Clone, Debug, Default)]
+struct Pace {
+    closed: f64,
+    running_since: Option<Instant>,
+    last_input: Option<Instant>,
+}
+
+impl Pace {
+    fn started(&self) -> bool {
+        self.running_since.is_some()
+    }
+
+    fn on_input(&mut self, now: Instant) {
+        if let Some(since) = self.running_since {
+            if let Some(cap) = self.idle_cap() {
+                if now > cap {
+                    self.closed += cap.saturating_duration_since(since).as_secs_f64();
+                    self.running_since = Some(now);
+                }
+            }
+        } else {
+            self.running_since = Some(now);
+        }
+        self.last_input = Some(now);
+    }
+
+    fn seconds(&self, now: Instant) -> f64 {
+        let Some(since) = self.running_since else {
+            return self.closed;
+        };
+        let end = match self.idle_cap() {
+            Some(cap) if now > cap => cap,
+            _ => now,
+        };
+        self.closed + end.saturating_duration_since(since).as_secs_f64()
+    }
+
+    fn idle_cap(&self) -> Option<Instant> {
+        self.last_input
+            .and_then(|last| last.checked_add(SPEED_IDLE))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -557,6 +635,35 @@ mod tests {
         assert!(g.rows.last().unwrap().en.typed().is_empty());
         g.on_char(' ', &mut bank);
         assert_eq!(g.rows.last().unwrap().en.typed(), " ");
+    }
+
+    #[test]
+    fn speed_clock_holds_after_a_pause_and_drops_the_gap() {
+        let t0 = Instant::now();
+        let mut pace = Pace::default();
+        pace.on_input(t0);
+        pace.on_input(t0 + Duration::from_millis(400));
+        let typing = pace.seconds(t0 + Duration::from_millis(400));
+        assert!((typing - 0.4).abs() < 0.001);
+
+        let paused = t0 + Duration::from_secs(10);
+        let held = pace.seconds(paused);
+        assert!((held - 2.4).abs() < 0.001);
+
+        pace.on_input(paused);
+        let resumed = pace.seconds(paused + Duration::from_millis(500));
+        assert!((resumed - 2.9).abs() < 0.001);
+    }
+
+    #[test]
+    fn short_gaps_keep_the_speed_clock_running() {
+        let t0 = Instant::now();
+        let mut pace = Pace::default();
+        pace.on_input(t0);
+        let mid = t0 + Duration::from_millis(1500);
+        pace.on_input(mid);
+        let later = mid + Duration::from_millis(1500);
+        assert!((pace.seconds(later) - 3.0).abs() < 0.001);
     }
 
     #[test]

@@ -20,11 +20,14 @@ pub fn chars_match(typed: char, expected: char) -> bool {
     typed == expected || canon(typed) == canon(expected)
 }
 
-pub fn count_correct(target: &str, typed: &str) -> u64 {
+pub fn count_correct(target: &str, typed: &str, ignored: &[bool]) -> u64 {
     target
         .chars()
         .zip(typed.chars())
-        .filter(|(expected, typed)| chars_match(*typed, *expected))
+        .enumerate()
+        .filter(|(index, (expected, typed))| {
+            ignored.get(*index) != Some(&true) && chars_match(*typed, *expected)
+        })
         .count() as u64
 }
 
@@ -77,6 +80,17 @@ pub fn wrap_indices(text: &str, width: usize) -> Vec<Vec<usize>> {
     lines
 }
 
+/// A space that sits at the end of a wrapped line. The line break stands in for it.
+pub fn is_wrap_space(text: &str, index: usize, width: usize) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.get(index) != Some(&' ') {
+        return false;
+    }
+    wrap_indices(text, width)
+        .iter()
+        .any(|line| line.last().copied() == Some(index))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,5 +113,13 @@ mod tests {
             .map(|idxs| idxs.iter().map(|&i| text.chars().nth(i).unwrap()).collect())
             .collect();
         assert_eq!(rendered, vec!["one two ".to_string(), "three".to_string()]);
+    }
+
+    #[test]
+    fn wrap_space_is_only_the_break_at_the_end_of_a_line() {
+        let text = "one two three";
+        assert!(is_wrap_space(text, 7, 8));
+        assert!(!is_wrap_space(text, 3, 8));
+        assert!(!is_wrap_space(text, 7, 80));
     }
 }
